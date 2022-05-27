@@ -3,8 +3,6 @@ import json
 import argparse
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("--experiment_name", type=str, default="",
-                            help="either 'uci_all' or 'vision'")
 parser.add_argument("--experiment_id", type=int, default="0",
                             help="id of json file")
 parser.add_argument("--run", type=str, default="idle",
@@ -22,7 +20,7 @@ print("Experiment ID: " + str(args.experiment_id))
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
 
 results_dir = '/om2/user/xboix/robustness/'
-full_results_dir = results_dir + args.experiment_name + '/'
+full_results_dir = results_dir + 'convex_robustness/'
 
 if not args.run == 'config':
 
@@ -42,18 +40,9 @@ if not args.run == 'config':
     elif args.run == 'test':
         import runs.test as run
         run.test(config)
-    elif args.run == 'test_bound':
-        import runs.test_bound as run
-        run.test_bound(config)
 
 else:
-    if args.experiment_name == 'uci_all':
-        import runs.config_experiments_uci_all as run_exp
-    elif args.experiment_name == 'vision':
-        import runs.config_experiments_vision as run_exp
-    elif args.experiment_name == 'cifar':
-        import runs.config_experiments_cifar as run_exp
-
+    import runs.config_experiments_vision as run_exp
 
     if args.config == 'generate':
         run_exp.config_experiments(full_results_dir)

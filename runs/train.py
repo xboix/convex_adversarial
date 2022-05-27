@@ -1,33 +1,169 @@
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.autograd import Variable
+import torch.backends.cudnn as cudnn
+# cudnn.benchmark = True
 
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+
+import setproctitle
+
+import problems as pblm
+from trainer import *
+import math
+import numpy as np
 import os
-import input_data
-from timeit import default_timer as timer
-from networks.robust_network import get_network
-from datetime import datetime
-import sys
-import pickle
-import zipfile
-import hashlib
+
+
+class cArgs:
+    def __init__(self, batch_size=50, epochs=20, seed=0, verbose=1, lr=1e-3,
+                 epsilon=0.1, starting_epsilon=None,
+                 proj=None,
+                 norm_train='l1', norm_test='l1',
+                 opt='sgd', momentum=0.9, weight_decay=5e-4):
+
+        self.opt = opt
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+        self.batch_size = batch_size
+        self.test_batch_size = batch_size
+        self.epochs = epochs
+        self.lr = lr
+
+        # epsilon settings
+        self.epsilon = epsilon
+        self.starting_epsilon = starting_epsilon
+        self.schedule_length = 10
+
+        # projection settings
+        self.proj = proj
+        self.norm_train = norm_train
+        self.norm_test = norm_test
+
+        # model arguments
+        self.model = None
+        self.model_factor = 8
+        self.cascade = 1
+        self.method = None
+        self.resnet_N = 1
+        self.resnet_factor = 1
+
+        # other arguments
+        self.seed = seed
+        self.real_time = True
+        self.cuda_ids = None
+        self.prefix = None
+        self.load = None
+        self.verbose = verbose
+
+        if self.starting_epsilon is None:
+            self.starting_epsilon = self.epsilon
+        if self.prefix:
+            if self.model is not None:
+                self.prefix += '_' + self.model
+
+            if self.method is not None:
+                self.prefix += '_' + self.method
+
+            banned = ['verbose', 'prefix',
+                      'resume', 'baseline', 'eval',
+                      'method', 'model', 'cuda_ids', 'load', 'real_time',
+                      'test_batch_size']
+            if self.method == 'baseline':
+                banned += ['epsilon', 'starting_epsilon', 'schedule_length',
+                           'l1_test', 'l1_train', 'm', 'l1_proj']
+
+            # Ignore these parameters for filename since we never change them
+            banned += ['momentum', 'weight_decay']
+
+            if self.cascade == 1:
+                banned += ['cascade']
+
+            # if not using a model that uses model_factor,
+            # ignore model_factor
+            if self.model not in ['wide', 'deep']:
+                banned += ['model_factor']
+
+            # if args.model != 'resnet':
+            banned += ['resnet_N', 'resnet_factor']
+
+            for arg in sorted(vars(self)):
+                if arg not in banned and getattr(self, arg) is not None:
+                    self.prefix += '_' + arg + '_' + str(getattr(self, arg))
+
+            if self.schedule_length > self.epochs:
+                raise ValueError('Schedule length for epsilon ({}) is greater than '
+                                 'number of epochs ({})'.format(self.schedule_length, self.epochs))
+        else:
+            self.prefix = 'temporary'
+
+        if self.cuda_ids is not None:
+            print('Setting CUDA_VISIBLE_DEVICES to {}'.format(self.cuda_ids))
+            os.environ['CUDA_VISIBLE_DEVICES'] = self.cuda_ids
+
+
+def train_baseline(loader, model, opt, epoch, log, verbose, standarization):
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
+    losses = AverageMeter()
+    errors = AverageMeter()
+
+    model.train()
+
+    end = time.time()
+    for i, (X,y) in enumerate(loader):
+
+        if standarization:
+            m = np.mean(X.numpy(), axis=(1, 2, 3))
+            X = X - m[:, np.newaxis, np.newaxis, np.newaxis]
+            d = np.std(X.numpy(), axis=(1, 2, 3))
+            X = X / d[:, np.newaxis, np.newaxis, np.newaxis]
+
+        X,y = X.cuda(), y.cuda()
+        data_time.update(time.time() - end)
+
+        out = model(Variable(X))
+        ce = nn.CrossEntropyLoss()(out, Variable(y))
+        err = (out.data.max(1)[1] != y).float().sum()  / X.size(0)
+
+        opt.zero_grad()
+        ce.backward()
+        opt.step()
+
+        batch_time.update(time.time()-end)
+        end = time.time()
+        losses.update(ce.data, X.size(0))
+        errors.update(err, X.size(0))
+
+        print(epoch, i, ce.data, err, file=log)
+        if verbose and i % verbose == 0:
+            print('Epoch: [{0}][{1}/{2}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                  'Error {errors.val:.3f} ({errors.avg:.3f})'.format(
+                   epoch, i, len(loader), batch_time=batch_time,
+                   data_time=data_time, loss=losses, errors=errors))
+        log.flush()
 
 
 def train(config):
+    # Setting up training parameters
+    args = cArgs(batch_size=config['training_batch_size'], epochs=config['max_num_training_steps'],
+                 opt='adam', verbose=200, starting_epsilon=0.01, epsilon=config['epsilon'], lr=config['initial_learning_rate'])
+    print("saving file to {}".format(config["model_dir"]))
+    setproctitle.setproctitle(config["model_dir"])
+    train_log = open(config["model_dir"] + "/train.log", "w")
+    test_log = open(config["model_dir"] + "/test.log", "w")
 
-    if "Madry" in config:
-        print("Download the model manually")
-        return
 
     if config["skip"]:
         print("SKIP")
         return
 
-    # Setting up training parameters
-    seed = config['random_seed']
-    tf.random.set_seed(seed)
-    batch_size = config['training_batch_size']
-    max_num_training_steps = config['max_num_training_steps']
-    num_output_steps = config['num_output_steps']
-    eval_attack_during_training = config['eval_attack_during_training']
     backbone_name = config['backbone']
     robust_training = config['robust_training']
 
@@ -35,117 +171,89 @@ def train(config):
         print("Already trained")
         return
 
-    if eval_attack_during_training or config['pgd_training']:
-        from foolbox import TensorFlowModel, accuracy, Model
-        from foolbox.attacks import LinfPGD
-
     # Setting up the data and the model
-    data = input_data.load_data_set(results_dir=config['results_dir'], data_set=config['data_set'],
-                                    standarized=config["standarize"], multiplier=config["standarize_multiplier"],
-                                    re_size=config["re_size"], seed=seed)
-    num_features = data.train.images.shape[1]
+    if config['data_set'] == 'mnist':
 
-    print("batch" + str(config['training_batch_size']))
-    model = get_network(backbone_name, config, num_features)
+        train_loader, _ = pblm.mnist_loaders(args.batch_size)
+        _, test_loader = pblm.mnist_loaders(args.test_batch_size)
 
-    # Setting up attacks
-    if eval_attack_during_training or config['pgd_training']:
-        pre = dict(std=None, mean=None)
-        fmodel: Model = TensorFlowModel(model, bounds=(config["bound_lower"], config["bound_upper"]), preprocessing=pre)
-        fmodel = fmodel.transform_bounds((config["bound_lower"], config["bound_upper"]))
-        attack = LinfPGD()
-        epsilons_evaluation = [0.1]
+    elif config['data_set'] == 'fashion':
+
+        def fashion_loaders(batch_size, shuffle_test=False):
+            mnist_train = datasets.FashionMNIST("./data", train=True, download=True, transform=transforms.ToTensor())
+            mnist_test = datasets.FashionMNIST("./data", train=False, download=True, transform=transforms.ToTensor())
+            train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, shuffle=True,
+                                                       pin_memory=True)
+            test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=shuffle_test,
+                                                      pin_memory=True)
+            return train_loader, test_loader
+
+        train_loader, _ = fashion_loaders(args.batch_size)
+        _, test_loader = fashion_loaders(args.test_batch_size)
+
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+
+    for X, y in train_loader:
+        break
+    kwargs = pblm.args2kwargs(args, X=Variable(X.cuda()))
+    best_err = 1
+
 
     model_dir = config['model_dir']
     start_iteration = 0
-    if not os.path.exists(model_dir + '/checkpoints/'):
-        os.makedirs(model_dir + '/checkpoints/')
-        os.makedirs(model_dir + '/results/')
-    elif config["restart"]:
-        print("Restart training")
-        import shutil
-        shutil.rmtree(model_dir + '/checkpoints', ignore_errors=True)
-        shutil.rmtree(model_dir + '/results', ignore_errors=True)
-        shutil.rmtree(model_dir + '/Test', ignore_errors=True)
-        shutil.rmtree(model_dir + '/Natural', ignore_errors=True)
-        shutil.rmtree(model_dir + '/Adversarial', ignore_errors=True)
-        os.makedirs(model_dir + '/checkpoints/')
-        os.makedirs(model_dir + '/results/')
-    elif not len(os.listdir(model_dir + '/checkpoints/')) == 0:
-        start_iteration = int(tf.train.latest_checkpoint(model_dir + '/checkpoints/').split('/')[-1])
-        print("Reload existing checkpoint " + str(start_iteration))
-        model.load_all(tf.train.latest_checkpoint(model_dir + '/checkpoints/'))
 
-    # Initialize the summary writer, global variables, and our time counter.
-    summary_train = tf.summary.create_file_writer(model_dir + "/Train")
-    summary_val = tf.summary.create_file_writer(model_dir + "/Validation")
-    if eval_attack_during_training:
-        summary_adv = tf.summary.create_file_writer(model_dir + "/Adversarial")
-    sys.stdout.flush()
+    if config['backbone'] == 'ThreeLayer':
+        model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(28*28, 200),
+            nn.ReLU(),
+            nn.Linear(200, 200),
+            nn.ReLU(),
+            nn.Linear(200, 200),
+            nn.ReLU(),
+            nn.Linear(200, 10)
+        )
+
+    sampler_indices = []
+    model = [select_model(args.model)]
 
     # Main training loop
-    training_time = 0.0
-    training_time_history = []
-    epsilon = config['epsilon']
-    for ii in range(start_iteration, max_num_training_steps):
-        x_batch, y_batch = data.train.next_batch(batch_size)
+    if args.opt == 'adam':
+        opt = optim.Adam(model[-1].parameters(), lr=args.lr)
+    elif args.opt == 'sgd':
+        opt = optim.SGD(model[-1].parameters(), lr=args.lr,
+                        momentum=args.momentum,
+                        weight_decay=args.weight_decay)
+    else:
+        raise ValueError("Unknown optimizer")
 
-        if config['increasing_epsilon']:
-            epsilon = config['epsilon'] * (config['increasing_epsilon_factor'] ** (ii // config['increasing_epsilon_steps']))
+    lr_scheduler = optim.lr_scheduler.StepLR(opt, step_size=10, gamma=0.5)
+    eps_schedule = np.linspace(args.starting_epsilon,
+                               args.epsilon,
+                               args.schedule_length)
 
-        if ii % num_output_steps == 0:
-            print('\n Step {} {}:    ({})\n'.format(model.optimizer.iterations.numpy(), ii, datetime.now()))
-            sys.stdout.flush()
+    for t in range(args.epochs):
+        lr_scheduler.step(epoch=max(t - len(eps_schedule), 0))
+        if t < len(eps_schedule) and args.starting_epsilon is not None:
+            epsilon = float(eps_schedule[t])
+        else:
+            epsilon = args.epsilon
 
-            # Setting up data for testing and validation
-            x_test, y_test = data.validation.next_batch(batch_size)
+        # standard training
+        if config["robust_training"]:
+            train_robust(train_loader, model[0], opt, epsilon, t,
+                         train_log, args.verbose, args.real_time,
+                         norm_type=args.norm_train, bounded_input=True, **kwargs)
+        else:
+            train_baseline(train_loader, model[0], opt, t, train_log, args.verbose)
 
-            model.set_mode('test')
-
-            model.evaluate(tf.cast(x_batch, tf.float32), tf.cast(y_batch, tf.int64), step=ii, epsilon=epsilon,
-                            summary=summary_train)
-            model.evaluate(tf.cast(x_test, tf.float32), tf.cast(y_test, tf.int64), step=ii, epsilon=epsilon,
-                            summary=summary_val)
-
-            if eval_attack_during_training:
-                raw_advs, clipped_advs, success = attack(fmodel, tf.cast(x_batch, tf.float32), tf.cast(y_batch, tf.int64),
-                            epsilons=epsilons_evaluation)
-
-                model.evaluate(tf.cast(clipped_advs[0], tf.float32), tf.cast(y_batch, tf.int64), step=ii, epsilon=epsilon,
-                            summary=summary_adv)
-
-                robust_accuracy = 1 - success.numpy().mean(axis=-1)
-                print("robust accuracy for perturbations with")
-                for eps, acc in zip(epsilons_evaluation, robust_accuracy):
-                    print(f"  Linf norm < {eps:<6}: {acc.item() * 100:4.1f} %")
-
-            if training_time != 0:
-                print('    {} examples per second'.format(
-                    num_output_steps * batch_size / training_time))
-                training_time_history.append(num_output_steps * batch_size / training_time)
-                training_time = 0.0
-
-                model.save_all(model_dir + '/checkpoints/' + str(ii))
-
-            sys.stdout.flush()
-
-        # Training step
-        start = timer()
-
-        if config['pgd_training']:
-            raw_advs, clipped_advs, success = attack(fmodel, tf.cast(x_batch, tf.float32), tf.cast(y_batch, tf.int64),
-                                                     epsilons=config['epsilon_pgd_training'])
-            x_batch = clipped_advs
-
-        model.set_mode('train')
-        model.train_step(tf.cast(x_batch, tf.float32), tf.cast(y_batch, tf.int64),
-                         epsilon=epsilon,
-                         robust=robust_training, type_robust=config['type_robust'])
-        end = timer()
-        training_time += end - start
+        torch.save({
+            'state_dict': model.state_dict(),
+            'epoch': t
+        }, config["model_dir"] + "_checkpoint.pth")
 
     # Flag the training completed and store the training time profile
     open(model_dir + '/results/training.done', 'w').close()
-    with open(model_dir + '/results/training_time.pkl', 'wb') as f:
-        pickle.dump(training_time_history, f)
+
 
