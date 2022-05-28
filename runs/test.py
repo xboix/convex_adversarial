@@ -117,6 +117,7 @@ def test(config):
                     acc = {k: acc[k] + tmp[k] for k in acc.keys()}
 
             acc = {k: acc[k]/num_iter for k in acc.keys()}
+            print(acc)
             with open(config['model_dir'] + '/results/acc_' + dataset + '_' + name_attack + '.pkl', 'wb') as f:
                 pickle.dump(acc, f)
 

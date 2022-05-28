@@ -15,9 +15,6 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 import setproctitle
-
-from examples import problems as pblm
-
 import math
 import numpy as np
 import os
@@ -126,6 +123,34 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+def mnist_loaders(batch_size, shuffle_test=False):
+    mnist_train = datasets.MNIST("./data", train=True, download=True, transform=transforms.ToTensor())
+    mnist_test = datasets.MNIST("./data", train=False, download=True, transform=transforms.ToTensor())
+    train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, shuffle=True, pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=shuffle_test, pin_memory=True)
+    return train_loader, test_loader
+
+def fashion_mnist_loaders(batch_size):
+    mnist_train = datasets.MNIST("./fashion_mnist", train=True,
+       download=True, transform=transforms.ToTensor())
+    mnist_test = datasets.MNIST("./fashion_mnist", train=False,
+       download=True, transform=transforms.ToTensor())
+    train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, shuffle=True, pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=False, pin_memory=True)
+    return train_loader, test_loader
+
+def args2kwargs(args, X=None):
+
+    if args.proj is not None:
+        kwargs = {
+            'proj' : args.proj,
+        }
+    else:
+        kwargs = {
+        }
+    kwargs['parallel'] = (args.cuda_ids is not None)
+    return kwargs
 
 
 def train_baseline(loader, model, opt, epoch, log, verbose, standarization):
@@ -251,7 +276,7 @@ def train_robust(loader, model, opt, epsilon, epoch, log, verbose, standarizatio
 def train(config):
     # Setting up training parameters
     args = cArgs(batch_size=config['training_batch_size'], epochs=config['max_num_training_steps'],
-                 opt='adam', verbose=200, starting_epsilon=0.01, epsilon=config['epsilon'], lr=config['initial_learning_rate'])
+                 opt='adam', verbose=200, starting_epsilon=config['epsilon']/10, epsilon=config['epsilon'], lr=config['initial_learning_rate'])
 
     if config["skip"]:
         print("SKIP")
@@ -279,20 +304,20 @@ def train(config):
     # Setting up the data and the model
     if config['data_set'] == 'mnist':
 
-        train_loader, _ = pblm.mnist_loaders(args.batch_size)
-        _, test_loader = pblm.mnist_loaders(args.test_batch_size)
+        train_loader, _ = mnist_loaders(args.batch_size)
+        _, test_loader = mnist_loaders(args.test_batch_size)
 
     elif config['data_set'] == 'fashion':
 
-        train_loader, _ = pblm.fashion_mnist_loaders(args.batch_size)
-        _, test_loader = pblm.fashion_mnist_loaders(args.test_batch_size)
+        train_loader, _ = fashion_mnist_loaders(args.batch_size)
+        _, test_loader = fashion_mnist_loaders(args.test_batch_size)
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
     for X, y in train_loader:
         break
-    kwargs = pblm.args2kwargs(args, X=Variable(X.cuda()))
+    kwargs = args2kwargs(args, X=Variable(X.cuda()))
     best_err = 1
 
     if config['backbone'] == 'ThreeLayer':
@@ -320,15 +345,30 @@ def train(config):
     epochs = int( float(config['max_num_training_steps']) / (60000.0 / float(config['training_batch_size'])) )
     training_time_history = []
     print("TOTAL EPOCHS:" + str(epochs))
+
+    eps_schedule = np.linspace(args.starting_epsilon,
+                                args.epsilon,
+                                epochs//2 + 1)
+    print("epsilon schedule = ")
+    print(eps_schedule)
+    print('lr=')
+    print(args.lr)
     for t in range(epochs):
         epsilon = args.epsilon
+
+        if t < len(eps_schedule) and config['epsilon_scheduler']:
+            epsilon = float(eps_schedule[t])
+        else:
+            epsilon = args.epsilon
+
+        print("epsilon = " + str(epsilon))
 
         training_time = 0.0
         start = timer()
         # standard training
         if config["robust_training"]:
             train_robust(train_loader, model, opt, epsilon, t,
-                         train_log, args.verbose, args.real_time, config['standarize'],
+                         train_log, args.verbose, config['standarize'], args.real_time,
                          norm_type=args.norm_train, bounded_input=True,  **kwargs)
         else:
             train_baseline(train_loader, model, opt, t, train_log, args.verbose, config['standarize'])
