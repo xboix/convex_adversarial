@@ -21,7 +21,8 @@ from examples import problems as pblm
 import math
 import numpy as np
 import os
-
+from timeit import default_timer as timer
+import pickle
 
 class cArgs:
     def __init__(self, batch_size=50, epochs=20, seed=0, verbose=1, lr=1e-3,
@@ -316,7 +317,7 @@ def train(config):
     else:
         raise ValueError("Unknown optimizer")
 
-    epochs = int( config['max_num_training_steps'] / (60000.0 / config['training_batch_size']) )
+    epochs = int( float(config['max_num_training_steps']) / (60000.0 / float(config['training_batch_size'])) )
     training_time_history = []
     print("TOTAL EPOCHS:" + str(epochs))
     for t in range(epochs):
@@ -337,7 +338,7 @@ def train(config):
 
         print('    {} examples per second'.format(
             60000.0 / training_time))
-        training_time_history.append(num_output_steps * batch_size / training_time)
+        training_time_history.append(60000.0 / training_time)
 
         torch.save(model.state_dict(), config["model_dir"] + "/checkpoints/checkpoint.pth")
 

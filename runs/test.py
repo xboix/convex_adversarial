@@ -31,7 +31,7 @@ def test(config):
 
     if os.path.isfile(config["model_dir"] + '/results/testing.done') and not config["restart"]:
         print("Already tested")
-        #return
+        return
 
     # Setting up the data and the model
     data = input_data.load_data_set(results_dir=config['results_dir'], data_set=config['data_set_id'],
@@ -57,8 +57,6 @@ def test(config):
     #Setting up attacks
 
     pre = dict(std=None, mean=None)  # RGB to BGR
-    config["bound_lower"] = -32768.0
-    config["bound_upper"] = 32767.0
     fmodel: Model = PyTorchModel(model, bounds=(config["bound_lower"], config["bound_upper"]), preprocessing=pre)
     fmodel = fmodel.transform_bounds((config["bound_lower"], config["bound_upper"]))
 
@@ -107,7 +105,7 @@ def test(config):
                 else:
                     x_batch, y_batch = data.test.next_batch(batch_size)
 
-                _, _, success = attack(fmodel, torch.from_numpy( x_batch ).float32().cuda() , torch.from_numpy(y_batch).cuda(),
+                _, _, success = attack(fmodel, torch.from_numpy( x_batch ).float().cuda() , torch.from_numpy(y_batch).cuda(),
                                                          epsilons=epsilon)
 
                 robust_accuracy = 1 - success.cpu().numpy().mean(axis=-1)

@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --array=0-27
+#SBATCH --array=0-336
 #SBATCH -n 1
 #SBATCH -c 2
 #SBATCH --job-name=robustness
 #SBATCH --mem=8GB
-#SBATCH -t 4:00:00
+#SBATCH -t 5:00:00
 #SBATCH -D ./log/
 #SBATCH --partition=cbmm
 #SBATCH --gres=gpu:1
