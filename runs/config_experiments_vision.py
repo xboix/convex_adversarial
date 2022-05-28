@@ -27,12 +27,13 @@ def config_experiments(results_dir, create_json=True):
                     upper = 1.0
                     lower = 0.0
 
-                for dataset in ['mnist', 'fashion', 'cifar']:
+                for dataset, dataset_id in zip(['mnist'], [0]):
 
                     #Vanilla
                     for lr in [1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]:
                         config = base_config.copy()
                         config["data_set"] = dataset
+                        config["data_set_id"] = dataset_id
                         config["model_name"] = str(id)
                         config["restart"] = restart
                         config["backbone"] = net
@@ -40,7 +41,7 @@ def config_experiments(results_dir, create_json=True):
                         config["initial_learning_rate"] = lr
                         config["robust_training"] = False
                         config["pgd_training"] = False
-                        config["max_num_training_steps"] = 20 #epochs
+                        config["max_num_training_steps"] = 10000
                         config["batch_decrease_learning_rate"] = 1e10  # do not decrease the learning rate
                         config["bound_lower"] = lower
                         config["bound_upper"] = upper
@@ -58,6 +59,7 @@ def config_experiments(results_dir, create_json=True):
                         for epsilon in [1e-4, 1e-5, 1e-3, 1e-2, 1e-1, 3e-1, 5e-1, 1, 3, 5, 10]:
                             config = base_config.copy()
                             config["data_set"] = dataset
+                            config["data_set_id"] = dataset_id
                             config["model_name"] = str(id)
                             config["restart"] = restart
                             config["training_batch_size"] = batch_size

@@ -30,9 +30,8 @@ if not args.run == 'config':
     config['model_dir'] = full_results_dir + config['model_name']
     config['results_dir'] = results_dir
 
-    with open(results_dir + 'configs_datasets/' + str(config["data_set"]) + '.json') as config_file:
+    with open(results_dir + 'configs_datasets/' + str(config["data_set_id"]) + '.json') as config_file:
         config_dataset = json.load(config_file)
-    config["num_classes"] = config_dataset["num_classes"]  # This is going to be needed to define the architecture
 
     if args.run == 'train':
         import runs.train as run
@@ -46,7 +45,6 @@ else:
 
     if args.config == 'generate':
         run_exp.config_experiments(full_results_dir)
-
     elif args.config == 'generate_datasets':
         import runs.config_datasets as run
         run.config_datasets(results_dir)
