@@ -40,10 +40,15 @@ def test(config):
 
     num_features = data.train.images.shape[1]
 
+    if config['data_set_id']==67: #cifar
+        s = 32*32*3
+    else:
+        s = 28*28
+
     if config['backbone'] == 'ThreeLayer':
         model = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(28*28, 200),
+            nn.Linear(s, 200),
             nn.ReLU(),
             nn.Linear(200, 200),
             nn.ReLU(),

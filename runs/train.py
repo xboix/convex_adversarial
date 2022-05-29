@@ -131,14 +131,25 @@ def mnist_loaders(batch_size, shuffle_test=False):
     test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=shuffle_test, pin_memory=True)
     return train_loader, test_loader
 
-def fashion_mnist_loaders(batch_size):
-    mnist_train = datasets.MNIST("./fashion_mnist", train=True,
-       download=True, transform=transforms.ToTensor())
-    mnist_test = datasets.MNIST("./fashion_mnist", train=False,
-       download=True, transform=transforms.ToTensor())
+def fashion_mnist_loaders(batch_size, shuffle_test=False):
+    mnist_train = datasets.FashionMNIST("./data", train=True, download=True, transform=transforms.ToTensor())
+    mnist_test = datasets.FashionMNIST("./data", train=False, download=True, transform=transforms.ToTensor())
     train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, shuffle=True, pin_memory=True)
-    test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=False, pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(mnist_test, batch_size=batch_size, shuffle=shuffle_test, pin_memory=True)
     return train_loader, test_loader
+
+def cifar_loaders(batch_size, shuffle_test=False):
+    train = datasets.CIFAR10('./data', train=True, download=True, transform=transforms.ToTensor())
+    test = datasets.CIFAR10('./data', train=False, transform=transforms.ToTensor())
+
+    train_loader = torch.utils.data.DataLoader(train, batch_size=batch_size,
+                                               shuffle=True, pin_memory=True)
+
+    test_loader = torch.utils.data.DataLoader(test, batch_size=batch_size,
+                                              shuffle=shuffle_test, pin_memory=True)
+
+    return train_loader, test_loader
+
 
 def args2kwargs(args, X=None):
 
@@ -153,7 +164,7 @@ def args2kwargs(args, X=None):
     return kwargs
 
 
-def train_baseline(loader, model, opt, epoch, log, verbose, standarization):
+def train_baseline(loader, model, opt, epoch, log, verbose, standarization, color):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -164,11 +175,21 @@ def train_baseline(loader, model, opt, epoch, log, verbose, standarization):
     end = time.time()
     for i, (X,y) in enumerate(loader):
 
+        if color:
+            X = X.permute(0, 2, 3, 1)
+
         if standarization==True:
-            m = np.mean(X.numpy(), axis=(1, 2, 3))
-            X = X - m[:, np.newaxis, np.newaxis, np.newaxis]
-            d = np.std(X.numpy(), axis=(1, 2, 3))
-            X = X / d[:, np.newaxis, np.newaxis, np.newaxis]
+            if not color:
+                m = np.mean(X.numpy(), axis=(1, 2, 3))
+                X = X - m[:, np.newaxis, np.newaxis, np.newaxis]
+                d = np.std(X.numpy(), axis=(1, 2, 3))
+                X = X / d[:, np.newaxis, np.newaxis, np.newaxis]
+            else:
+                for idx in range(3):
+                    m = np.mean(X[:, :, :, idx].numpy(), axis=(1, 2))
+                    X[:, :, :, idx] = X[:, :, :, idx] - m[:, np.newaxis, np.newaxis]
+                    d = np.std(X[:, :, :, idx].numpy(), axis=(1, 2))
+                    X[:, :, :, idx] = X[:, :, :, idx] / d[:, np.newaxis, np.newaxis]
 
         X,y = X.cuda(), y.cuda()
         data_time.update(time.time() - end)
@@ -198,7 +219,7 @@ def train_baseline(loader, model, opt, epoch, log, verbose, standarization):
         log.flush()
         sys.stdout.flush()
 
-def train_robust(loader, model, opt, epsilon, epoch, log, verbose, standarization,
+def train_robust(loader, model, opt, epsilon, epoch, log, verbose, standarization, color,
                 real_time=False, clip_grad=None, **kwargs):
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -212,12 +233,24 @@ def train_robust(loader, model, opt, epsilon, epoch, log, verbose, standarizatio
     end = time.time()
     for i, (X,y) in enumerate(loader):
 
-        if standarization==True:
-            m = np.mean(X.numpy(), axis=(1, 2, 3))
-            X = X - m[:, np.newaxis, np.newaxis, np.newaxis]
-            d = np.std(X.numpy(), axis=(1, 2, 3))
-            X = X / d[:, np.newaxis, np.newaxis, np.newaxis]
+        if color:
+            X = X.permute(0, 2, 3, 1)
 
+        if standarization==True:
+            if not color:
+                m = np.mean(X.numpy(), axis=(1, 2, 3))
+                X = X - m[:, np.newaxis, np.newaxis, np.newaxis]
+                d = np.std(X.numpy(), axis=(1, 2, 3))
+                X = X / d[:, np.newaxis, np.newaxis, np.newaxis]
+            else:
+                for idx in range(3):
+                    m = np.mean(X[:, :, :, idx].numpy(), axis=(1, 2))
+                    X[:, :, :, idx] = X[:, :, :, idx] - m[:, np.newaxis, np.newaxis]
+                    d = np.std(X[:, :, :, idx].numpy(), axis=(1, 2))
+                    X[:, :, :, idx] = X[:, :, :, idx] / d[:, np.newaxis, np.newaxis]
+
+        if color:
+            X = torch.flatten(X, start_dim=1)
 
         X,y = X.cuda(), y.cuda().long()
         if y.dim() == 2:
@@ -287,7 +320,7 @@ def train(config):
 
     if os.path.isfile(config["model_dir"] + '/results/training.done') and not config["restart"]:
         print("Already trained")
-        #return
+        return
 
     model_dir = config['model_dir']
 
@@ -306,11 +339,19 @@ def train(config):
 
         train_loader, _ = mnist_loaders(args.batch_size)
         _, test_loader = mnist_loaders(args.test_batch_size)
+        color = False
 
     elif config['data_set'] == 'fashion':
 
         train_loader, _ = fashion_mnist_loaders(args.batch_size)
         _, test_loader = fashion_mnist_loaders(args.test_batch_size)
+        color = False
+
+    elif config['data_set'] == 'cifar':
+
+        train_loader, _ = cifar_loaders(args.batch_size)
+        _, test_loader = cifar_loaders(args.test_batch_size)
+        color = True
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -320,10 +361,15 @@ def train(config):
     kwargs = args2kwargs(args, X=Variable(X.cuda()))
     best_err = 1
 
+    if color:
+        s = 32*32*3
+    else:
+        s = 28*28
+
     if config['backbone'] == 'ThreeLayer':
         model = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(28*28, 200),
+            nn.Linear(s, 200),
             nn.ReLU(),
             nn.Linear(200, 200),
             nn.ReLU(),
@@ -368,10 +414,10 @@ def train(config):
         # standard training
         if config["robust_training"]:
             train_robust(train_loader, model, opt, epsilon, t,
-                         train_log, args.verbose, config['standarize'], args.real_time,
+                         train_log, args.verbose, config['standarize'], color, args.real_time,
                          norm_type=args.norm_train, bounded_input=True,  **kwargs)
         else:
-            train_baseline(train_loader, model, opt, t, train_log, args.verbose, config['standarize'])
+            train_baseline(train_loader, model, opt, t, train_log, args.verbose, config['standarize'], color)
 
         end = timer()
         training_time += end - start

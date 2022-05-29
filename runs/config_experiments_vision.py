@@ -9,7 +9,7 @@ def config_experiments(results_dir, create_json=True):
 
     id = 0
     experiment_list = []
-    for dataset, dataset_id in zip(['mnist'], [0]):
+    for dataset, dataset_id in zip(['mnist','fashion','cifar'], [0,66,67]):
         for net in ["ThreeLayer"]:
             for batch_size in [32, 256]:
                 for normalization in ["01", "standarized"]:
