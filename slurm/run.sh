@@ -20,13 +20,13 @@ echo $CUDA_DEVICE_ORDER
 
 singularity exec -B /om:/om -B /om2:/om2 -B /scratch/user/xboix:/vast --nv /om/user/xboix/singularity/xboix-tensorflow2.8.0.simg \
 python3 main.py \
---experiment_id=$((1288 +${SLURM_ARRAY_TASK_ID})) \
+--experiment_id=$((644 +${SLURM_ARRAY_TASK_ID})) \
 --run=train \
 --gpu_id=0
 
 singularity exec -B /om:/om -B /om2:/om2 -B /scratch/user/xboix:/vast --nv /om/user/xboix/singularity/xboix-tensorflow2.8.0.simg \
 python3 main.py \
---experiment_id=$((1288 +${SLURM_ARRAY_TASK_ID})) \
+--experiment_id=$((644 +${SLURM_ARRAY_TASK_ID})) \
 --run=test \
 --gpu_id=0
 

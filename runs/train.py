@@ -318,7 +318,7 @@ def train(config):
     backbone_name = config['backbone']
     robust_training = config['robust_training']
 
-    if os.path.isfile(config["model_dir"] + '/results/training.done') and not config["restart"]:
+    if os.path.isfile(config["model_dir"] + '/results/training2.done') and not config["restart"]:
         print("Already trained")
         return
 
@@ -430,7 +430,7 @@ def train(config):
 
 
     # Flag the training completed and store the training time profile
-    open(model_dir + '/results/training.done', 'w').close()
+    open(model_dir + '/results/training2.done', 'w').close()
     with open(model_dir + '/results/training_time.pkl', 'wb') as f:
         pickle.dump(training_time_history, f)
 
