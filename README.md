@@ -1,8 +1,6 @@
-Code to compare `Provably robust neural networks (convex_adversarial)` with `A Robust Optimization approach to deep learning (RUB)`.
+Code to compare [Provably robust neural networks (convex_adversarial)](https://github.com/locuslab/convex_adversarial) and [A Robust Optimization approach to deep learning (RUB)](https://github.com/kimvc7/Robustness/). This repo has been forked fom [convex_adversarial](https://github.com/locuslab/convex_adversarial) and adapted to run a hyperparameter search and the same testing as in [RUB](https://github.com/kimvc7/Robustness/), for a fair comparison. 
 
-This repo has been forked fom [convex_adversarial](https://github.com/locuslab/convex_adversarial) and adapted to run a hyperparameter search and the same testing as in RUB, for a fair comparison.
-
-See original repos for [convex_adversarial](https://github.com/locuslab/convex_adversarial) and [RUB](https://github.com/kimvc7/Robustness/). The code executes as in RUB while using the functions provided in convex_adversarial.
+The code executes as in RUB while using the functions provided in convex_adversarial (see both original repos for more details).
 
 
 ## Requirements 
