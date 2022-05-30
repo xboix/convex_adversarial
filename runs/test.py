@@ -25,11 +25,11 @@ def test(config):
     batch_size = config['training_batch_size']
     backbone_name = config['backbone']
 
-    if not os.path.isfile(config["model_dir"] + '/results/training2.done'):
+    if not os.path.isfile(config["model_dir"] + '/results/training.done'):
         print("Not trained") 
         return
 
-    if os.path.isfile(config["model_dir"] + '/results/testing2.done') and not config["restart"]:
+    if os.path.isfile(config["model_dir"] + '/results/testing.done') and not config["restart"]:
         print("Already tested")
         return
 
@@ -129,7 +129,7 @@ def test(config):
         print("\n Attack " + name_attack + " done")
         sys.stdout.flush()
 
-    open(config['model_dir'] + '/results/testing2.done', 'w').close()
+    open(config['model_dir'] + '/results/testing.done', 'w').close()
 
 
 

@@ -116,10 +116,10 @@ def config_experiments(results_dir, create_json=True):
 
 def check_uncompleted(results_dir, experiments_list):
 
-    for experiment in experiments_list[644:(644*2)]:
+    for experiment in experiments_list:
         if experiment["skip"]:
             continue
-        if not os.path.isfile(results_dir + experiment["model_name"] + '/results/testing2.done'):
+        if not os.path.isfile(results_dir + experiment["model_name"] + '/results/testing.done'):
             print(experiment["model_name"], end = ',')
 
     print("\n Check train completed")
