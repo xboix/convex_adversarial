@@ -19,7 +19,7 @@ print("Experiment ID: " + str(args.experiment_id))
 
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
 
-results_dir = '/om2/user/xboix/robustness/'
+results_dir = './results/'
 full_results_dir = results_dir + 'convex_robustness/'
 
 if not args.run == 'config':
